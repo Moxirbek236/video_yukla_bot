@@ -72,7 +72,7 @@ app = create_app("main")
 
 
 def private_use(func):
-    def wrapper(client: Client, message: types.Message):
+    async def wrapper(client: Client, message: types.Message):
         chat_id = getattr(message.from_user, "id", None)
 
         # message type check
@@ -87,22 +87,22 @@ def private_use(func):
             users = []
 
         if users and chat_id and chat_id not in users:
-            message.reply_text("BotText.private", quote=True)
+            await message.reply_text("BotText.private", quote=True)
             return
 
-        return func(client, message)
+        return await func(client, message)
 
     return wrapper
 
 
 @app.on_message(filters.command(["start"]))
-def start_handler(client: Client, message: types.Message):
+async def start_handler(client: Client, message: types.Message):
     from_id = message.chat.id
     init_user(from_id)
     logging.info("%s welcome to youtube-dl bot!", message.from_user.id)
-    client.send_chat_action(from_id, enums.ChatAction.TYPING)
+    await client.send_chat_action(from_id, enums.ChatAction.TYPING)
     free, paid = get_free_quota(from_id), get_paid_quota(from_id)
-    client.send_message(
+    await client.send_message(
         from_id,
         BotText.start + f"You have {free} free and {paid} paid quota.",
         disable_web_page_preview=True,
@@ -110,43 +110,38 @@ def start_handler(client: Client, message: types.Message):
 
 
 @app.on_message(filters.command(["help"]))
-def help_handler(client: Client, message: types.Message):
+async def help_handler(client: Client, message: types.Message):
     chat_id = message.chat.id
     init_user(chat_id)
-    client.send_chat_action(chat_id, enums.ChatAction.TYPING)
-    client.send_message(chat_id, BotText.help, disable_web_page_preview=True)
+    await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
+    await client.send_message(chat_id, BotText.help, disable_web_page_preview=True)
 
 
 @app.on_message(filters.command(["about"]))
-def about_handler(client: Client, message: types.Message):
+async def about_handler(client: Client, message: types.Message):
     chat_id = message.chat.id
     init_user(chat_id)
-    client.send_chat_action(chat_id, enums.ChatAction.TYPING)
-    client.send_message(chat_id, BotText.about)
+    await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
+    await client.send_message(chat_id, BotText.about)
 
 
 @app.on_message(filters.command(["ping"]))
-def ping_handler(client: Client, message: types.Message):
+async def ping_handler(client: Client, message: types.Message):
+    import asyncio
     chat_id = message.chat.id
     init_user(chat_id)
-    client.send_chat_action(chat_id, enums.ChatAction.TYPING)
+    await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
 
-    def send_message_and_measure_ping():
-        start_time = int(round(time.time() * 1000))
-        reply: types.Message | typing.Any = client.send_message(chat_id, "Starting Ping...")
+    start_time = int(round(time.time() * 1000))
+    reply: types.Message | typing.Any = await client.send_message(chat_id, "Starting Ping...")
 
-        end_time = int(round(time.time() * 1000))
-        ping_time = int(round(end_time - start_time))
-        message_sent = True
-        if message_sent:
-            message.reply_text(f"Ping: {ping_time:.2f} ms", quote=True)
-        time.sleep(0.5)
-        client.edit_message_text(chat_id=reply.chat.id, message_id=reply.id, text="Ping Calculation Complete.")
-        time.sleep(1)
-        client.delete_messages(chat_id=reply.chat.id, message_ids=reply.id)
-
-    thread = threading.Thread(target=send_message_and_measure_ping)
-    thread.start()
+    end_time = int(round(time.time() * 1000))
+    ping_time = int(round(end_time - start_time))
+    await message.reply_text(f"Ping: {ping_time:.2f} ms", quote=True)
+    await asyncio.sleep(0.5)
+    await client.edit_message_text(chat_id=reply.chat.id, message_id=reply.id, text="Ping Calculation Complete.")
+    await asyncio.sleep(1)
+    await client.delete_messages(chat_id=reply.chat.id, message_ids=reply.id)
 
 
 @app.on_message(filters.command(["buy"]))
@@ -165,7 +160,7 @@ def buy(client: Client, message: types.Message):
             ],
         ]
     )
-    message.reply_text("Please choose the amount you want to buy.", reply_markup=markup)
+    await message.reply_text("Please choose the amount you want to buy.", reply_markup=markup)
 
 
 @app.on_callback_query(filters.regex(r"buy.*"))
@@ -200,17 +195,17 @@ def successful_payment(client: Client, message: types.Message):
     ch = message.successful_payment.provider_payment_charge_id
     free, paid = credit_account(who, amount, quota, ch)
     if paid > 0:
-        message.reply_text(f"Payment successful! You now have {free} free and {paid} paid quota.")
+        await message.reply_text(f"Payment successful! You now have {free} free and {paid} paid quota.")
     else:
-        message.reply_text("Something went wrong. Please contact the admin.")
+        await message.reply_text("Something went wrong. Please contact the admin.")
     message.delete()
 
 
 @app.on_message(filters.command(["stats"]))
-def stats_handler(client: Client, message: types.Message):
+async def stats_handler(client: Client, message: types.Message):
     chat_id = message.chat.id
     init_user(chat_id)
-    client.send_chat_action(chat_id, enums.ChatAction.TYPING)
+    await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
     cpu_usage = psutil.cpu_percent()
     total, used, free, disk = psutil.disk_usage("/")
     swap = psutil.swap_memory()
@@ -252,16 +247,16 @@ def stats_handler(client: Client, message: types.Message):
     )
 
     if message.from_user.id in OWNER:
-        message.reply_text(owner_stats, quote=True)
+        await message.reply_text(owner_stats, quote=True)
     else:
-        message.reply_text(user_stats, quote=True)
+        await message.reply_text(user_stats, quote=True)
 
 
 @app.on_message(filters.command(["settings"]))
-def settings_handler(client: Client, message: types.Message):
+async def settings_handler(client: Client, message: types.Message):
     chat_id = message.chat.id
     init_user(chat_id)
-    client.send_chat_action(chat_id, enums.ChatAction.TYPING)
+    await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
     markup = types.InlineKeyboardMarkup(
         [
             [  # First row
@@ -279,66 +274,66 @@ def settings_handler(client: Client, message: types.Message):
 
     quality = get_quality_settings(chat_id)
     send_type = get_format_settings(chat_id)
-    client.send_message(chat_id, BotText.settings.format(quality, send_type), reply_markup=markup)
+    await client.send_message(chat_id, BotText.settings.format(quality, send_type), reply_markup=markup)
 
 
 @app.on_message(filters.command(["direct"]))
 def direct_download(client: Client, message: types.Message):
     chat_id = message.chat.id
     init_user(chat_id)
-    client.send_chat_action(chat_id, enums.ChatAction.TYPING)
+    await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
     message_text = message.text
     url, new_name = extract_url_and_name(message_text)
     logging.info("Direct download using aria2/requests start %s", url)
     if url is None or not re.findall(r"^https?://", url.lower()):
-        message.reply_text("Send me a correct LINK.", quote=True)
+        await message.reply_text("Send me a correct LINK.", quote=True)
         return
-    bot_msg = message.reply_text("Direct download request received.", quote=True)
+    bot_msg = await message.reply_text("Direct download request received.", quote=True)
     try:
         direct_entrance(client, bot_msg, url)
     except ValueError as e:
-        message.reply_text(e.__str__(), quote=True)
+        await message.reply_text(e.__str__(), quote=True)
         bot_msg.delete()
         return
 
 
 @app.on_message(filters.command(["spdl"]))
-def spdl_handler(client: Client, message: types.Message):
+async def spdl_handler(client: Client, message: types.Message):
     chat_id = message.chat.id
     init_user(chat_id)
-    client.send_chat_action(chat_id, enums.ChatAction.TYPING)
+    await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
     message_text = message.text
     url, new_name = extract_url_and_name(message_text)
     logging.info("spdl start %s", url)
     if url is None or not re.findall(r"^https?://", url.lower()):
-        message.reply_text("Something wrong 🤔.\nCheck your URL and send me again.", quote=True)
+        await message.reply_text("Something wrong 🤔.\nCheck your URL and send me again.", quote=True)
         return
-    bot_msg = message.reply_text("SPDL request received.", quote=True)
+    bot_msg = await message.reply_text("SPDL request received.", quote=True)
     try:
         special_download_entrance(client, bot_msg, url)
     except ValueError as e:
-        message.reply_text(e.__str__(), quote=True)
+        await message.reply_text(e.__str__(), quote=True)
         bot_msg.delete()
         return
 
 
 @app.on_message(filters.command(["ytdl"]) & filters.group)
-def ytdl_handler(client: Client, message: types.Message):
+async def ytdl_handler(client: Client, message: types.Message):
     # for group only
     init_user(message.from_user.id)
-    client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)
+    await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)
     message_text = message.text
     url, new_name = extract_url_and_name(message_text)
     logging.info("ytdl start %s", url)
     if url is None or not re.findall(r"^https?://", url.lower()):
-        message.reply_text("Check your URL.", quote=True)
+        await message.reply_text("Check your URL.", quote=True)
         return
 
-    bot_msg = message.reply_text("Group download request received.", quote=True)
+    bot_msg = await message.reply_text("Group download request received.", quote=True)
     try:
         youtube_entrance(client, bot_msg, url)
     except ValueError as e:
-        message.reply_text(e.__str__(), quote=True)
+        await message.reply_text(e.__str__(), quote=True)
         bot_msg.delete()
         return
 
@@ -355,18 +350,18 @@ def check_link(url: str):
 
 @app.on_message(filters.incoming & filters.text)
 @private_use
-def download_handler(client: Client, message: types.Message):
+async def download_handler(client: Client, message: types.Message):
     chat_id = message.from_user.id
     init_user(chat_id)
-    client.send_chat_action(chat_id, enums.ChatAction.TYPING)
+    await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
     url = message.text
     logging.info("start %s", url)
 
     try:
         check_link(url)
         # raise pyrogram.errors.exceptions.FloodWait(10)
-        bot_msg: types.Message | Any = message.reply_text("Task received.", quote=True)
-        client.send_chat_action(chat_id, enums.ChatAction.UPLOAD_VIDEO)
+        bot_msg: types.Message | Any = await message.reply_text("Task received.", quote=True)
+        await client.send_chat_action(chat_id, enums.ChatAction.UPLOAD_VIDEO)
         youtube_entrance(client, bot_msg, url)
     except pyrogram.errors.Flood as e:
         f = BytesIO()
@@ -375,30 +370,30 @@ def download_handler(client: Client, message: types.Message):
         f.name = "Please wait.txt"
         message.reply_document(f, caption=f"Flood wait! Please wait {e} seconds...", quote=True)
         f.close()
-        client.send_message(OWNER, f"Flood wait! 🙁 {e} seconds....")
+        await client.send_message(OWNER, f"Flood wait! 🙁 {e} seconds....")
         time.sleep(e.value)
     except ValueError as e:
-        message.reply_text(e.__str__(), quote=True)
+        await message.reply_text(e.__str__(), quote=True)
     except Exception as e:
         logging.error("Download failed", exc_info=True)
-        message.reply_text(f"❌ Download failed: {e}", quote=True)
+        await message.reply_text(f"❌ Download failed: {e}", quote=True)
 
 
 @app.on_callback_query(filters.regex(r"document|video|audio"))
-def format_callback(client: Client, callback_query: types.CallbackQuery):
+async def format_callback(client: Client, callback_query: types.CallbackQuery):
     chat_id = callback_query.message.chat.id
     data = callback_query.data
     logging.info("Setting %s file type to %s", chat_id, data)
-    callback_query.answer(f"Your send type was set to {callback_query.data}")
+    await callback_query.answer(f"Your send type was set to {callback_query.data}")
     set_user_settings(chat_id, "format", data)
 
 
 @app.on_callback_query(filters.regex(r"high|medium|low"))
-def quality_callback(client: Client, callback_query: types.CallbackQuery):
+async def quality_callback(client: Client, callback_query: types.CallbackQuery):
     chat_id = callback_query.message.chat.id
     data = callback_query.data
     logging.info("Setting %s download quality to %s", chat_id, data)
-    callback_query.answer(f"Your default engine quality was set to {callback_query.data}")
+    await callback_query.answer(f"Your default engine quality was set to {callback_query.data}")
     set_user_settings(chat_id, "quality", data)
 
 
@@ -412,4 +407,23 @@ ytdlbot - YouTube Download Bot
 By @BennyThink, VIP Mode: {ENABLE_VIP} 
     """
     print(banner)
+
+    # Dummy HTTP server to prevent Render Web Service timeout
+    import threading, os
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    class DummyHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b"Bot is running perfectly!")
+    
+    def run_dummy_server():
+        port = int(os.environ.get("PORT", 8080))
+        httpd = HTTPServer(('0.0.0.0', port), DummyHandler)
+        logging.info(f"Dummy HTTP server started on port {port}")
+        httpd.serve_forever()
+        
+    threading.Thread(target=run_dummy_server, daemon=True).start()
+
     app.run()

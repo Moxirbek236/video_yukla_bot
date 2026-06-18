@@ -123,10 +123,9 @@ class YoutubeDownload(BaseDownloader):
             # try add extract_args if present
             if potoken := os.getenv("POTOKEN"):
                 ydl_opts["extractor_args"] = {"youtube": ["player-client=web,default", f"po_token=web+{potoken}"]}
-                # for new version? https://github.com/yt-dlp/yt-dlp/wiki/PO-Token-Guide
-                # ydl_opts["extractor_args"] = {
-                #     "youtube": [f"po_token=web.player+{potoken}", f"po_token=web.gvs+{potoken}"]
-                # }
+            else:
+                # Force clients that do not require PO tokens to bypass BotGuard
+                ydl_opts["extractor_args"] = {"youtube": ["player-client=android_vr,tv,default"]}
 
         if self._url.startswith("https://drive.google.com"):
             # Always use the `source` format for Google Drive URLs.
