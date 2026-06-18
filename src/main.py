@@ -290,7 +290,9 @@ async def direct_download(client: Client, message: types.Message):
         return
     bot_msg = await message.reply_text("Direct download request received.", quote=True)
     try:
-        direct_entrance(client, bot_msg, url)
+        import asyncio
+
+        await asyncio.to_thread(direct_entrance, client, bot_msg, url)
     except ValueError as e:
         await message.reply_text(e.__str__(), quote=True)
         bot_msg.delete()
@@ -310,7 +312,9 @@ async def spdl_handler(client: Client, message: types.Message):
         return
     bot_msg = await message.reply_text("SPDL request received.", quote=True)
     try:
-        special_download_entrance(client, bot_msg, url)
+        import asyncio
+
+        await asyncio.to_thread(special_download_entrance, client, bot_msg, url)
     except ValueError as e:
         await message.reply_text(e.__str__(), quote=True)
         bot_msg.delete()
@@ -331,7 +335,9 @@ async def ytdl_handler(client: Client, message: types.Message):
 
     bot_msg = await message.reply_text("Group download request received.", quote=True)
     try:
-        youtube_entrance(client, bot_msg, url)
+        import asyncio
+
+        await asyncio.to_thread(youtube_entrance, client, bot_msg, url)
     except ValueError as e:
         await message.reply_text(e.__str__(), quote=True)
         bot_msg.delete()
@@ -362,7 +368,9 @@ async def download_handler(client: Client, message: types.Message):
         # raise pyrogram.errors.exceptions.FloodWait(10)
         bot_msg: types.Message | Any = await message.reply_text("Task received.", quote=True)
         await client.send_chat_action(chat_id, enums.ChatAction.UPLOAD_VIDEO)
-        youtube_entrance(client, bot_msg, url)
+        import asyncio
+
+        await asyncio.to_thread(youtube_entrance, client, bot_msg, url)
     except pyrogram.errors.Flood as e:
         f = BytesIO()
         f.write(str(e).encode())

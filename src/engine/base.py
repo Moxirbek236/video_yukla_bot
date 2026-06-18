@@ -1,3 +1,11 @@
+import asyncio
+
+def run_sync(client, coro):
+    if asyncio.iscoroutine(coro):
+        future = asyncio.run_coroutine_threadsafe(coro, client.loop)
+        return future.result()
+    return coro
+
 #!/usr/bin/env python3
 # coding: utf-8
 
@@ -135,7 +143,7 @@ class BaseDownloader(ABC):
 
     @debounce(5)
     def edit_text(self, text: str):
-        self._bot_msg.edit_text(text)
+        run_sync(self._client, self._bot_msg.edit_text(text))
 
     @abstractmethod
     def _setup_formats(self) -> list | None:
@@ -157,11 +165,11 @@ class BaseDownloader(ABC):
         }
 
     def send_something(self, *, chat_id, files, _type, caption=None, thumb=None, **kwargs):
-        self._client.send_chat_action(chat_id, enums.ChatAction.UPLOAD_DOCUMENT)
+        run_sync(self._client, self._client.send_chat_action(chat_id, enums.ChatAction.UPLOAD_DOCUMENT))
         is_cache = kwargs.pop("cache", False)
         if len(files) > 1 and is_cache == False:
             inputs = generate_input_media(files, caption)
-            return self._client.send_media_group(chat_id, inputs)[0]
+            return run_sync(self._client, self._client.send_media_group(chat_id, inputs))[0]
         else:
             file_arg_name = None
             if _type == "photo":
@@ -189,7 +197,7 @@ class BaseDownloader(ABC):
             if _type in ["video", "animation", "document", "audio"] and thumb is not None:
                 send_args["thumb"] = thumb
 
-            return self._methods[_type](**send_args)
+            return run_sync(self._client, self._methods[_type](**send_args))
 
     def get_metadata(self):
         video_path = list(Path(self._tempdir.name).glob("*"))[0]
@@ -307,7 +315,7 @@ class BaseDownloader(ABC):
 
         self._redis.add_cache(video_key, mapping)
         # change progress bar to done
-        self._bot_msg.edit_text("✅ Success")
+        run_sync(self._client, self._bot_msg.edit_text("✅ Success"))
         return success
 
     def _get_video_cache(self):
