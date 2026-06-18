@@ -107,6 +107,8 @@ class YoutubeDownload(BaseDownloader):
             "js_runtimes": {"node": {}},
             "external_downloader": "aria2c",
             "external_downloader_args": {"aria2c": ["-x", "16", "-s", "16", "-k", "1M"]},
+            "extractor_retries": 3,
+            "ignore_no_formats_error": True,
         }
         if os.name == 'nt':
             ydl_opts["ffmpeg_location"] = "C:/Users/moxir/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1.1-full_build/bin"
@@ -126,6 +128,8 @@ class YoutubeDownload(BaseDownloader):
             else:
                 # Force clients that do not require PO tokens to bypass BotGuard
                 ydl_opts["extractor_args"] = {"youtube": ["player-client=android_vr,tv,default"]}
+                # Also add ios and web as additional client fallbacks for better format availability
+                ydl_opts["extractor_args"]["youtube"].append("player-client=ios,web")
 
         if self._url.startswith("https://drive.google.com"):
             # Always use the `source` format for Google Drive URLs.
@@ -133,12 +137,21 @@ class YoutubeDownload(BaseDownloader):
 
         files = None
         for f in formats:
-            ydl_opts["format"] = f
+            if f is not None:
+                ydl_opts["format"] = f
+            else:
+                # None format means let yt-dlp choose the best automatically
+                ydl_opts.pop("format", None)
             logging.info("yt-dlp options: %s", ydl_opts)
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([self._url])
-            files = list(Path(self._tempdir.name).glob("*"))
-            break
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.download([self._url])
+                files = list(Path(self._tempdir.name).glob("*"))
+                if files:
+                    break
+            except Exception as e:
+                logging.warning("Format %s failed, trying next fallback: %s", f, e)
+                continue
 
         return files
 
@@ -149,5 +162,8 @@ class YoutubeDownload(BaseDownloader):
         if formats is not None:
             # formats according to user choice
             default_formats = formats + self._setup_formats()
-        self._download(default_formats)
-        self._upload()
+        files = self._download(default_formats)
+        if files:
+            self._upload(files)
+        else:
+            raise Exception("No files were downloaded. The video format may not be available.")
