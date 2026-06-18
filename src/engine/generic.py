@@ -105,10 +105,11 @@ class YoutubeDownload(BaseDownloader):
             "embed_thumbnail": True,
             "writethumbnail": False,
             "js_runtimes": {"node": {}},
-            "ffmpeg_location": "C:/Users/moxir/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1.1-full_build/bin",
             "external_downloader": "aria2c",
             "external_downloader_args": {"aria2c": ["-x", "16", "-s", "16", "-k", "1M"]},
         }
+        if os.name == 'nt':
+            ydl_opts["ffmpeg_location"] = "C:/Users/moxir/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1.1-full_build/bin"
         # setup cookies for youtube only
         if is_youtube(self._url):
             # use cookies from browser firstly

@@ -9,8 +9,9 @@ __author__ = "Benny <benny.think@gmail.com>"
 
 import logging
 import os
-os.environ["PATH"] += os.pathsep + "C:/Users/moxir/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1.1-full_build/bin"
-os.environ["PATH"] += os.pathsep + "C:/Users/moxir/AppData/Local/Microsoft/WinGet/Packages/aria2.aria2_Microsoft.Winget.Source_8wekyb3d8bbwe/aria2-1.37.0-win-64bit-build1"
+if os.name == 'nt':
+    os.environ["PATH"] += os.pathsep + "C:/Users/moxir/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1.1-full_build/bin"
+    os.environ["PATH"] += os.pathsep + "C:/Users/moxir/AppData/Local/Microsoft/WinGet/Packages/aria2.aria2_Microsoft.Winget.Source_8wekyb3d8bbwe/aria2-1.37.0-win-64bit-build1"
 import re
 import threading
 import time
