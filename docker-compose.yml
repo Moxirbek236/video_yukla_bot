@@ -1,0 +1,49 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  mysql:
+    image: ubuntu/mysql:8.0-22.04_beta
+    restart: always
+    volumes:
+      - ./db_data:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: "root"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --explicit_defaults_for_timestamp=1
+      - --max_allowed_packet=64M
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  ytdl:
+    image: bennythink/ytdlbot
+    env_file:
+      - .env
+    restart: always
+    volumes:
+      - ./youtube-cookies.txt:/app/youtube-cookies.txt
+    depends_on:
+      redis:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
