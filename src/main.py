@@ -145,7 +145,7 @@ async def ping_handler(client: Client, message: types.Message):
 
 
 @app.on_message(filters.command(["buy"]))
-def buy(client: Client, message: types.Message):
+async def buy(client: Client, message: types.Message):
     markup = types.InlineKeyboardMarkup(
         [
             [  # First row
@@ -164,12 +164,12 @@ def buy(client: Client, message: types.Message):
 
 
 @app.on_callback_query(filters.regex(r"buy.*"))
-def send_invoice(client: Client, callback_query: types.CallbackQuery):
+async def send_invoice(client: Client, callback_query: types.CallbackQuery):
     chat_id = callback_query.message.chat.id
     data = callback_query.data
     _, count, price = data.split("-")
     price = int(float(price) * 100)
-    client.send_invoice(
+    await client.send_invoice(
         chat_id,
         f"{count} permanent download quota",
         "Please make a payment via Stripe",
@@ -183,12 +183,12 @@ def send_invoice(client: Client, callback_query: types.CallbackQuery):
 
 
 @app.on_pre_checkout_query()
-def pre_checkout(client: Client, query: types.PreCheckoutQuery):
-    client.answer_pre_checkout_query(query.id, ok=True)
+async def pre_checkout(client: Client, query: types.PreCheckoutQuery):
+    await client.answer_pre_checkout_query(query.id, ok=True)
 
 
 @app.on_message(filters.successful_payment)
-def successful_payment(client: Client, message: types.Message):
+async def successful_payment(client: Client, message: types.Message):
     who = message.chat.id
     amount = message.successful_payment.total_amount  # in cents
     quota = int(message.successful_payment.invoice_payload)
@@ -198,7 +198,7 @@ def successful_payment(client: Client, message: types.Message):
         await message.reply_text(f"Payment successful! You now have {free} free and {paid} paid quota.")
     else:
         await message.reply_text("Something went wrong. Please contact the admin.")
-    message.delete()
+    await message.delete()
 
 
 @app.on_message(filters.command(["stats"]))
@@ -278,7 +278,7 @@ async def settings_handler(client: Client, message: types.Message):
 
 
 @app.on_message(filters.command(["direct"]))
-def direct_download(client: Client, message: types.Message):
+async def direct_download(client: Client, message: types.Message):
     chat_id = message.chat.id
     init_user(chat_id)
     await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
