@@ -11,6 +11,7 @@ WORKDIR /app
 RUN apk update && apk add --no-cache ffmpeg aria2 deno
 COPY --from=pybuilder /build/.venv/lib/ /usr/local/lib/
 COPY src /app
+COPY youtube-cookies.txt /app/youtube-cookies.txt
 WORKDIR /app
 
 CMD ["python" ,"main.py"]
