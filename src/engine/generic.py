@@ -2,166 +2,224 @@
 # coding: utf-8
 
 # ytdlbot - generic.py
+# Ultra-optimized: subprocess yt-dlp (GIL-free) + Redis format caching + fast metadata
 
+import json
 import logging
 import os
+import subprocess
+import sys
 from pathlib import Path
 
-import yt_dlp
-
 from config import AUDIO_FORMAT
-from utils import is_youtube
+from utils import is_youtube, sizeof_fmt
 from database.model import get_format_settings, get_quality_settings
 from engine.base import BaseDownloader
+
+logger = logging.getLogger(__name__)
 
 
 def match_filter(info_dict):
     if info_dict.get("is_live"):
         raise NotImplementedError("Skipping live video")
-    return None  # Allow download for non-live videos
+    return None
 
 
 class YoutubeDownload(BaseDownloader):
+
+    _WORKER_SCRIPT = None  # lazy resolve
+
+    @classmethod
+    def _get_worker(cls) -> str:
+        if cls._WORKER_SCRIPT is None:
+            cls._WORKER_SCRIPT = os.path.normpath(
+                os.path.join(os.path.dirname(__file__), "..", "worker.py")
+            )
+        return cls._WORKER_SCRIPT
+
+    # ── builder helpers ──────────────────────────────────────────────
+
     @staticmethod
-    def get_format(m):
+    def get_format(height: int) -> list[str]:
         return [
-            f"bestvideo[ext=mp4][height={m}]+bestaudio[ext=m4a]",
-            f"bestvideo[vcodec^=avc][height={m}]+bestaudio[acodec^=mp4a]/best[vcodec^=avc]/best",
+            f"bestvideo[ext=mp4][height={height}]+bestaudio[ext=m4a]",
+            f"bestvideo[vcodec^=avc][height={height}]+bestaudio[acodec^=mp4a]/best[vcodec^=avc]/best",
         ]
 
-    def _setup_formats(self) -> list | None:
+    # ── format selection ──────────────────────────────────────────────
+
+    def _setup_formats(self) -> list[str | None]:
+        """Return the list of format specs that should be tried."""
         if not is_youtube(self._url):
             return [None]
 
-        quality, format_ = get_quality_settings(self._chat_id), get_format_settings(self._chat_id)
-        # quality: high, medium, low, custom
-        # format: audio, video, document
-        formats = []
-        defaults = [
-            # webm , vp9 and av01 are not streamable on telegram, so we'll extract only mp4
+        quality = get_quality_settings(self._chat_id)
+        format_ = get_format_settings(self._chat_id)
+
+        defaults: list[str | None] = [
             "bestvideo[ext=mp4][vcodec!*=av01][vcodec!*=vp09]+bestaudio[ext=m4a]/bestvideo+bestaudio",
             "bestvideo[vcodec^=avc]+bestaudio[acodec^=mp4a]/best[vcodec^=avc]/best",
-            None,
+            None,  # = yt-dlp auto
         ]
-        audio = AUDIO_FORMAT or "m4a"
+        audio_ext = AUDIO_FORMAT or "m4a"
+
         maps = {
-            "high-audio": [f"bestaudio[ext={audio}]"],
-            "high-video": defaults,
-            "high-document": defaults,
-            "medium-audio": [f"bestaudio[ext={audio}]"],  # no mediumaudio :-(
-            "medium-video": self.get_format(720),
+            "high-audio":      [f"bestaudio[ext={audio_ext}]"],
+            "high-video":      defaults,
+            "high-document":   defaults,
+            "medium-audio":    [f"bestaudio[ext={audio_ext}]"],
+            "medium-video":    self.get_format(720),
             "medium-document": self.get_format(720),
-            "low-audio": [f"bestaudio[ext={audio}]"],
-            "low-video": self.get_format(480),
-            "low-document": self.get_format(480),
-            "custom-audio": "",
-            "custom-video": "",
-            "custom-document": "",
+            "low-audio":       [f"bestaudio[ext={audio_ext}]"],
+            "low-video":       self.get_format(480),
+            "low-document":    self.get_format(480),
+            "custom-audio":    [""],  # TODO
+            "custom-video":    [""],
+            "custom-document": [""],
         }
 
-        if quality == "custom":
-            pass
-            # TODO not supported yet
-            # get format from ytdlp, send inlinekeyboard button to user so they can choose
-            # another callback will be triggered to download the video
-            # available_options = {
-            #     "480P": "best[height<=480]",
-            #     "720P": "best[height<=720]",
-            #     "1080P": "best[height<=1080]",
-            # }
-            # markup, temp_row = [], []
-            # for quality, data in available_options.items():
-            #     temp_row.append(types.InlineKeyboardButton(quality, callback_data=data))
-            #     if len(temp_row) == 3:  # Add a row every 3 buttons
-            #         markup.append(temp_row)
-            #         temp_row = []
-            # # Add any remaining buttons as the last row
-            # if temp_row:
-            #     markup.append(temp_row)
-            # self._bot_msg.edit_text("Choose the format", reply_markup=types.InlineKeyboardMarkup(markup))
-            # return None
-
-        formats.extend(maps[f"{quality}-{format_}"])
-        # extend default formats if not high*
+        key = f"{quality}-{format_}"
+        selected = maps.get(key, defaults)
+        # append defaults as fallback (except for "high")
         if quality != "high":
-            formats.extend(defaults)
-        return formats
+            selected = list(selected) + list(defaults)
+        return selected
 
-    def _download(self, formats) -> list:
-        output = Path(self._tempdir.name, "%(title).70s.%(ext)s").as_posix()
-        ydl_opts = {
-            "progress_hooks": [lambda d: self.download_hook(d)],
-            "outtmpl": output,
-            "restrictfilenames": True,
-            "windowsfilenames": True,
-            "quiet": True,
-            "match_filter": match_filter,
-            "concurrent_fragments": 16,
-            "buffersize": 4194304,
-            "retries": 6,
-            "fragment_retries": 6,
-            "skip_unavailable_fragments": True,
-            "embed_metadata": True,
-            "embed_thumbnail": True,
-            "writethumbnail": False,
-            "js_runtimes": {"node": {}},
-            "external_downloader": "aria2c",
-            "external_downloader_args": {"aria2c": ["-x", "16", "-s", "16", "-k", "1M"]},
-            "extractor_retries": 3,
-            "ignore_no_formats_error": True,
-        }
-        if os.name == 'nt':
-            ydl_opts["ffmpeg_location"] = "C:/Users/moxir/AppData/Local/Microsoft/WinGet/Packages/Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe/ffmpeg-8.1.1-full_build/bin"
-        # setup cookies for youtube only
+    # ── Redis format cache ────────────────────────────────────────────
+
+    def _format_cache_key(self) -> str:
+        return f"ytdl_fmt_{self._url}"
+
+    def _load_cached_formats(self) -> list[dict] | None:
+        """Return cached format list or None."""
+        try:
+            from database.cache import Redis
+            r = Redis().r
+            raw = r.get(self._format_cache_key())
+            if raw:
+                return json.loads(raw)
+        except Exception:
+            pass
+        return None
+
+    def _save_cached_formats(self, formats: list[dict]) -> None:
+        """Store format list in Redis with 1 hour TTL."""
+        try:
+            from database.cache import Redis
+            r = Redis().r
+            r.setex(self._format_cache_key(), 3600, json.dumps(formats))
+        except Exception:
+            pass
+
+    # ── subprocess helpers ─────────────────────────────────────────────
+
+    def _run_worker(self, task: dict) -> dict:
+        """Call worker.py as subprocess and return decoded JSON."""
+        proc = subprocess.run(
+            [sys.executable, self._get_worker()],
+            input=json.dumps(task),
+            capture_output=True,
+            text=True,
+            timeout=600,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr.strip() or f"Worker exited with code {proc.returncode}")
+        return json.loads(proc.stdout.strip())
+
+    def _determine_cookiefile(self) -> str | None:
         if is_youtube(self._url):
-            # use cookies from browser firstly
-            if browsers := os.getenv("BROWSERS"):
-                try:
-                    ydl_opts["cookiesfrombrowser"] = browsers.split(",")
-                except Exception:
-                    pass
-            if os.path.isfile("youtube-cookies.txt") and os.path.getsize("youtube-cookies.txt") > 100:
-                ydl_opts["cookiefile"] = "youtube-cookies.txt"
-            # try add extract_args if present
-            if potoken := os.getenv("POTOKEN"):
-                ydl_opts["extractor_args"] = {"youtube": ["player-client=web,default", f"po_token=web+{potoken}"]}
-            else:
-                # Force clients that do not require PO tokens to bypass BotGuard
-                ydl_opts["extractor_args"] = {"youtube": ["player-client=android_vr,tv,default"]}
-                # Also add ios and web as additional client fallbacks for better format availability
-                ydl_opts["extractor_args"]["youtube"].append("player-client=ios,web")
+            path = "youtube-cookies.txt"
+            if os.path.isfile(path) and os.path.getsize(path) > 100:
+                return os.path.abspath(path)
+        return None
 
-        if self._url.startswith("https://drive.google.com"):
-            # Always use the `source` format for Google Drive URLs.
-            formats = ["source"] + formats
+    # ── format pre-extraction (cached, subprocess) ────────────────────
+
+    def _best_format_spec(self) -> str | None:
+        """Extract video info (cached in Redis) and return the best format string."""
+        cached = self._load_cached_formats()
+        if cached:
+            logger.info("Using cached format info for %s", self._url)
+        else:
+            logger.info("Extracting format info for %s via subprocess…", self._url)
+            result = self._run_worker({
+                "action": "extract",
+                "url": self._url,
+                "cookiefile": self._determine_cookiefile(),
+            })
+            if not result.get("success"):
+                logger.warning("Extraction failed: %s", result.get("error"))
+                return None
+            cached = result.get("formats", [])
+            self._save_cached_formats(cached)
+
+        if not cached:
+            return None
+
+        # Strategy: prefer mp4 video + m4a audio
+        mp4_only = [f for f in cached if f.get("ext") == "mp4" and f.get("vcodec") != "none"]
+        m4a_only = [f for f in cached if f.get("ext") == "m4a" and f.get("acodec") != "none"]
+
+        if mp4_only and m4a_only:
+            return "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio"
+        # fallback to any video+audio
+        return "bestvideo+bestaudio/best"
+
+    # ── core download ─────────────────────────────────────────────────
+
+    def _download(self, formats: list) -> list:
+        """Try format specs in order via subprocess yt-dlp."""
+        workdir = Path(self._tempdir.name)
+        cookiefile = self._determine_cookiefile()
+
+        # Build ordered trial list
+        trial_formats: list[str | None] = []
+        for f in formats:
+            if f not in trial_formats:
+                trial_formats.append(f)
+
+        # Add dynamically detected best format (from Redis or fresh extract)
+        best = self._best_format_spec()
+        if best and best not in trial_formats:
+            trial_formats.append(best)
+
+        trial_formats.append("bestvideo+bestaudio/best")  # final fallback
 
         files = None
-        for f in formats:
-            if f is not None:
-                ydl_opts["format"] = f
-            else:
-                # None format means let yt-dlp choose the best automatically
-                ydl_opts.pop("format", None)
-            logging.info("yt-dlp options: %s", ydl_opts)
+        for fmt in trial_formats:
+            if not fmt:
+                continue  # skip None/empty
+            logger.info("Trying format: %s", fmt)
             try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.download([self._url])
-                files = list(Path(self._tempdir.name).glob("*"))
-                if files:
-                    break
+                result = self._run_worker({
+                    "action": "download",
+                    "url": self._url,
+                    "format": fmt,
+                    "output_dir": str(workdir),
+                    "output_template": "%(title).70s.%(ext)s",
+                    "cookiefile": cookiefile,
+                })
+                if result.get("success"):
+                    files = result.get("files", [])
+                    if files:
+                        file_sizes = ", ".join(
+                            sizeof_fmt(Path(f).stat().st_size) for f in files
+                        )
+                        logger.info("Download OK with format %s: %s (%s)", fmt, files, file_sizes)
+                        break
+                else:
+                    logger.warning("Format %s failed: %s", fmt, result.get("error"))
             except Exception as e:
-                logging.warning("Format %s failed, trying next fallback: %s", f, e)
-                continue
+                logger.warning("Format %s raised: %s", fmt, e)
 
         return files
 
+    # ── lifecycle ─────────────────────────────────────────────────────
+
     def _start(self, formats=None):
-        # start download and upload, no cache hit
-        # user can choose format by clicking on the button(custom config)
         default_formats = self._setup_formats()
         if formats is not None:
-            # formats according to user choice
-            default_formats = formats + self._setup_formats()
+            default_formats = formats + (default_formats or [])
         files = self._download(default_formats)
         if files:
             self._upload(files)
