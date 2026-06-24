@@ -1,5 +1,5 @@
 # tgcrypto removed - requires MSVC build tools, optional for performance
-APScheduler>=3.11.0
+APScheduler>=3.11.2
 ffmpeg-python>=0.2.0
 PyMySQL>=1.1.1
 filetype>=1.2.0
